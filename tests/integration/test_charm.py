@@ -25,7 +25,7 @@ async def test_build_and_deploy(ops_test: OpsTest):
     """
     # build and deploy charm from local source folder
     charm = await ops_test.build_charm(".")
-    resources = {"httpbin-image": METADATA["resources"]["httpbin-image"]["upstream-source"]}
+    resources = {"lego-image": METADATA["resources"]["lego-image"]["upstream-source"]}
     await ops_test.model.deploy(charm, resources=resources, application_name=APP_NAME)
 
     # issuing dummy update_status just to trigger an event

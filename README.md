@@ -1,26 +1,32 @@
-# operator-template
+# lego-operator
 
 ## Description
 
-TODO: Describe your charm in a few paragraphs of Markdown
+LEGO operator implements the provider side of the `tls-certificates-interface`
+to provide signed certificates from an ACME servers, using LEGO
+(https://go-acme.github.io/lego).
 
 ## Usage
 
-TODO: Provide high-level usage, such as required config or relations
+Deploy `lego-operator`:
+
+`juju deploy lego-operator`
+
+Relate it to a `tls-certificates-requirer` charm:
+
+`juju relate lego-operator:certificates tls-certificates-requirer`
 
 ## Relations
 
-TODO: Provide any relations which are provided or required by your charm
+`certificates`: `tls-certificates-interface` provider
 
 ## OCI Images
 
-TODO: Include a link to the default image your charm uses
+`goacme/lego`
 
 ## Contributing
 
-<!-- TEMPLATE-TODO: Change this URL to be the full Github path to CONTRIBUTING.md-->
-
 Please see the [Juju SDK docs](https://juju.is/docs/sdk) for guidelines on enhancements to this
 charm following best practice guidelines, and
-[CONTRIBUTING.md](https://github.com/<name>/<operator>/blob/main/CONTRIBUTING.md) for developer
+[CONTRIBUTING.md](https://github.com/ghislainbourgeois/lego-operator/blob/main/CONTRIBUTING.md) for developer
 guidance.

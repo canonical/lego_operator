@@ -3,21 +3,21 @@
 
 # For a complete list of supported options, see:
 # https://juju.is/docs/sdk/metadata-reference
-name: template-operator
+name: lego-operator
 description: |
-  TEMPLATE-TODO: fill out the charm's description
+  LEGO operator implementing the provider side of the `tls-certificates`
+  interface to get signed certificates from ACME servers, like `Let's Encrypt`.
 summary: |
-  TEMPLATE-TODO: fill out the charm's summary
+  LEGO operator implementing the provider side of the `tls-certificates`
+  interface to get signed certificates from ACME servers, like `Let's Encrypt`.
 
-# TEMPLATE-TODO: replace with containers for your workload (delete for non-k8s)
 containers:
-  httpbin:
-    resource: httpbin-image
+  lego:
+    resource: lego-image
 
-# TEMPLATE-TODO: each container defined above must specify an oci-image resource
 resources:
-  httpbin-image:
+  lego-image:
     type: oci-image
-    description: OCI image for httpbin (kennethreitz/httpbin)
+    description: OCI image for lego (goacme/lego)
     # Included for simplicity in integration tests
-    upstream-source: kennethreitz/httpbin
+    upstream-source: goacme/lego
