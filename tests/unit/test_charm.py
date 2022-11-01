@@ -27,25 +27,12 @@ class TestCharm(unittest.TestCase):
         initial_plan = self.harness.get_container_pebble_plan("lego")
         self.assertEqual(initial_plan.to_yaml(), "{}\n")
         # Expected plan after Pebble ready with default config
-        expected_plan = {
-            "services": {
-                "lego": {
-                    "override": "replace",
-                    "summary": "lego",
-                    "command": "lego",
-                    "startup": "disabled",
-                    "environment": {"thing": "🎁"},
-                }
-            },
-        }
+        expected_plan = {}
         container = self.harness.model.unit.get_container("lego")
         self.harness.charm.on.lego_pebble_ready.emit(container)
         # Get the plan now we've run PebbleReady
         updated_plan = self.harness.get_container_pebble_plan("lego").to_dict()
         # Check we've got the plan we expected
         self.assertEqual(expected_plan, updated_plan)
-        # Check the service was started
-        service = self.harness.model.unit.get_container("lego").get_service("lego")
-        self.assertFalse(service.is_running())
         # Ensure we set an ActiveStatus with no message
         self.assertEqual(self.harness.model.unit.status, ActiveStatus())
