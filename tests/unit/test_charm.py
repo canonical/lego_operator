@@ -17,11 +17,6 @@ class TestCharm(unittest.TestCase):
         self.addCleanup(self.harness.cleanup)
         self.harness.begin()
 
-    def test_config_changed(self):
-        self.assertEqual(list(self.harness.charm._stored.things), [])
-        self.harness.update_config({"thing": "foo"})
-        self.assertEqual(list(self.harness.charm._stored.things), ["foo"])
-
     def test_lego_pebble_ready(self):
         # Check the initial Pebble plan is empty
         initial_plan = self.harness.get_container_pebble_plan("lego")

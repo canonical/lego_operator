@@ -11,6 +11,10 @@ summary: |
   LEGO operator implementing the provider side of the `tls-certificates`
   interface to get signed certificates from ACME servers, like `Let's Encrypt`.
 
+provides:
+  certificates:
+    interface: tls-certificates
+
 containers:
   lego:
     resource: lego-image
