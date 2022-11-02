@@ -34,6 +34,13 @@ class LegoOperatorCharm(CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
         self._container = self.unit.get_container("lego")
+        self._email = "ghislain.bourgeois@canonical.com"
+        self._server = "https://acme-staging-v02.api.letsencrypt.org/directory"
+        self._plugin = "namecheap"
+        self._secrets = {
+            "NAMECHEAP_API_USER": "",
+            "NAMECHEAP_API_KEY": "",
+        }
         self.tls_certificates = TLSCertificatesProvidesV1(self, "certificates")
         self.framework.observe(self.on.lego_pebble_ready, self._on_lego_pebble_ready)
         self.framework.observe(
@@ -55,30 +62,34 @@ class LegoOperatorCharm(CharmBase):
             return
 
         try:
-            csr = x509.load_pem_x509_csr(event.certificate_signing_request)
+            csr = x509.load_pem_x509_csr(event.certificate_signing_request.encode())
             subject = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
         except IndexError:
             logger.error("Bad CSR received, aborting")
             return
 
-        self._container.push(path="/tmp/csr.pem", source=event.certificate_signing_request)
+        self._container.push(
+            path="/tmp/csr.pem", source=event.certificate_signing_request.encode()
+        )
 
         logger.info("Getting certificate for domain %s", subject)
         lego_cmd = [
             "lego",
             "--email",
-            "ghislain.bourgeois@canonical.com",
+            self._email,
             "--accept-tos",
             "--csr",
             "/tmp/csr.pem",
             "--server",
-            "https://acme-staging-v02.api.letsencrypt.org/directory",
+            self._server,
             "--dns",
-            "namecheap",
+            self._plugin,
             "run",
         ]
 
-        process = self._container.exec(lego_cmd, timeout=300, working_dir="/tmp")
+        process = self._container.exec(
+            lego_cmd, timeout=300, working_dir="/tmp", environment=self._secrets
+        )
         try:
             stdout, error = process.wait_output()
             logger.info(f"Return message: {stdout}, {error}")
@@ -87,14 +98,16 @@ class LegoOperatorCharm(CharmBase):
             for line in e.stderr.splitlines():  # type: ignore
                 logger.error("    %s", line)
 
-        certificate = self._container.pull(path="/tmp/.lego/cert.pem")
-        ca_certificate = None
+        chain_pem = self._container.pull(path=f"/tmp/.lego/certificates/{subject}.crt")
+        certs = []
+        for cert in chain_pem.read().split("-----BEGIN CERTIFICATE-----"):
+            certs.append(cert.decode())
 
         self.tls_certificates.set_relation_certificate(
-            certificate=certificate,
+            certificate=certs[0],
             certificate_signing_request=event.certificate_signing_request,
-            ca=ca_certificate,
-            chain=[ca_certificate, certificate],
+            ca=certs[-1],
+            chain=list(reversed(certs)),
             relation_id=event.relation_id,
         )
 
