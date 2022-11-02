@@ -19,7 +19,7 @@ testing.SIMULATE_CAN_CONNECT = True
 from ops.testing import Harness
 
 from charm import LegoOperatorCharm
-from v1.tls_certificates import generate_csr, generate_private_key
+from charms.tls_certificates_interface.v1.tls_certificates import generate_csr, generate_private_key
 
 test_lego = Path(__file__).parent / 'test_lego.crt'
 
@@ -29,8 +29,7 @@ def harness():
         {'name': 'lego',
          'containers':
              {'lego':
-                  {'resource':
-                       'lego-image'}},
+                  {'resource': 'lego-image'}},
          'provides': {'certificates': {'interface': 'tls-certificates'}}})
                       )
 
