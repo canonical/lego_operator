@@ -69,7 +69,8 @@ class LegoOperatorCharm(CharmBase):
             return
 
         self._container.push(
-            path="/tmp/csr.pem", source=event.certificate_signing_request.encode()
+            path="/tmp/csr.pem", make_dirs=True,
+            source=event.certificate_signing_request.encode()
         )
 
         logger.info("Getting certificate for domain %s", subject)
@@ -101,7 +102,7 @@ class LegoOperatorCharm(CharmBase):
         chain_pem = self._container.pull(path=f"/tmp/.lego/certificates/{subject}.crt")
         certs = []
         for cert in chain_pem.read().split("-----BEGIN CERTIFICATE-----"):
-            certs.append(cert.decode())
+            certs.append(cert)
 
         self.tls_certificates.set_relation_certificate(
             certificate=certs[0],
