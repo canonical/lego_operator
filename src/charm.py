@@ -63,7 +63,11 @@ class LegoOperatorCharm(CharmBase):
 
         try:
             csr = x509.load_pem_x509_csr(event.certificate_signing_request.encode())
-            subject = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+            subject_value = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+            if isinstance(subject_value, bytes):
+                subject = subject_value.decode()
+            else:
+                subject = subject_value
         except IndexError:
             logger.error("Bad CSR received, aborting")
             return

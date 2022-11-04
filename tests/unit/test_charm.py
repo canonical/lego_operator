@@ -2,36 +2,38 @@
 # See LICENSE file for licensing details.
 #
 # Learn more about testing at: https://juju.is/docs/sdk/testing
-import base64
 import json
-import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 import yaml
-from ops.model import ActiveStatus
-
+from charms.tls_certificates_interface.v1.tls_certificates import (  # type: ignore[import]
+    generate_csr,
+    generate_private_key,
+)
 from ops import testing
-
-testing.SIMULATE_CAN_CONNECT = True
-
+from ops.model import ActiveStatus
 from ops.testing import Harness
 
 from charm import LegoOperatorCharm
-from charms.tls_certificates_interface.v1.tls_certificates import generate_csr, generate_private_key
 
-test_lego = Path(__file__).parent / 'test_lego.crt'
+testing.SIMULATE_CAN_CONNECT = True
+test_lego = Path(__file__).parent / "test_lego.crt"
 
-@pytest.fixture(scope='function')
+
+@pytest.fixture(scope="function")
 def harness():
-    harness = Harness(LegoOperatorCharm, meta=yaml.safe_dump(
-        {'name': 'lego',
-         'containers':
-             {'lego':
-                  {'resource': 'lego-image'}},
-         'provides': {'certificates': {'interface': 'tls-certificates'}}})
-                      )
+    harness = Harness(
+        LegoOperatorCharm,
+        meta=yaml.safe_dump(
+            {
+                "name": "lego",
+                "containers": {"lego": {"resource": "lego-image"}},
+                "provides": {"certificates": {"interface": "tls-certificates"}},
+            }
+        ),
+    )
 
     harness.set_leader(True)
     setup_lego_container(harness)
@@ -41,7 +43,7 @@ def harness():
 
 
 def setup_lego_container(harness: Harness):
-    harness.set_can_connect('lego', True)
+    harness.set_can_connect("lego", True)
 
 
 def test_lego_pebble_ready(harness):
@@ -61,15 +63,18 @@ def test_lego_pebble_ready(harness):
 
 
 def request_cert(harness):
-    r_id = harness.add_relation('certificates', 'remote')
-    harness.add_relation_unit(r_id, 'remote/0')
-    csr = generate_csr(generate_private_key(), subject='foo')
-    harness.update_relation_data(r_id, 'remote/0', {
-        "certificate_signing_requests": json.dumps(
-            [{'certificate_signing_request':
-                  csr.decode().strip()
-              }])
-    })
+    r_id = harness.add_relation("certificates", "remote")
+    harness.add_relation_unit(r_id, "remote/0")
+    csr = generate_csr(generate_private_key(), subject="foo")
+    harness.update_relation_data(
+        r_id,
+        "remote/0",
+        {
+            "certificate_signing_requests": json.dumps(
+                [{"certificate_signing_request": csr.decode().strip()}]
+            )
+        },
+    )
 
 
 def test_request(harness):
@@ -77,10 +82,9 @@ def test_request(harness):
         # todo verify args/kwargs
         return Mock(wait_output=lambda: (None, None))
 
-    harness._backend._pebble_clients['lego'].exec = _check_exec_args
-    harness._backend._pebble_clients['lego'].push(
-        f"/tmp/.lego/certificates/foo.crt",
-        source=test_lego.read_bytes(),
-        make_dirs=True)
+    harness._backend._pebble_clients["lego"].exec = _check_exec_args
+    harness._backend._pebble_clients["lego"].push(
+        "/tmp/.lego/certificates/foo.crt", source=test_lego.read_bytes(), make_dirs=True
+    )
 
     request_cert(harness)
