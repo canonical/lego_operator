@@ -13,6 +13,7 @@ develop a new k8s charm using the Operator Framework:
 """
 
 import logging
+from typing import Dict
 
 from charms.tls_certificates_interface.v1.tls_certificates import (  # type: ignore[import]
     CertificateCreationRequestEvent,
@@ -22,7 +23,7 @@ from cryptography import x509
 from cryptography.x509.oid import NameOID
 from ops.charm import CharmBase
 from ops.main import main
-from ops.model import ActiveStatus, WaitingStatus
+from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
 from ops.pebble import ExecError
 
 logger = logging.getLogger(__name__)
@@ -68,8 +69,8 @@ class LegoOperatorCharm(CharmBase):
                 subject = subject_value.decode()
             else:
                 subject = subject_value
-        except IndexError:
-            logger.error("Bad CSR received, aborting")
+        except Exception:
+            logger.exception("Bad CSR received, aborting")
             return
 
         self._container.push(
@@ -92,15 +93,17 @@ class LegoOperatorCharm(CharmBase):
         ]
 
         process = self._container.exec(
-            lego_cmd, timeout=300, working_dir="/tmp", environment=self._secrets
+            lego_cmd, timeout=300, working_dir="/tmp", environment=self._plugin_configs
         )
         try:
             stdout, error = process.wait_output()
             logger.info(f"Return message: {stdout}, {error}")
         except ExecError as e:
+            self.unit.status = BlockedStatus("Error getting certificate. Check logs for details")
             logger.error("Exited with code %d. Stderr:", e.exit_code)
             for line in e.stderr.splitlines():  # type: ignore
                 logger.error("    %s", line)
+            return
 
         chain_pem = self._container.pull(path=f"/tmp/.lego/certificates/{subject}.crt")
         certs = []
@@ -114,6 +117,10 @@ class LegoOperatorCharm(CharmBase):
             chain=list(reversed(certs)),
             relation_id=event.relation_id,
         )
+
+    @property
+    def _plugin_configs(self) -> Dict[str, str]:
+        return self._secrets
 
 
 if __name__ == "__main__":
