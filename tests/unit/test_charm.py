@@ -11,12 +11,10 @@ from unittest.mock import Mock
 import yaml
 from charms.acme_client_operator.v0.acme_client import AcmeClient  # type: ignore[import]
 from charms.tls_certificates_interface.v1.tls_certificates import (  # type: ignore[import]
-    TLSCertificatesProvidesV1,
     generate_csr,
     generate_private_key,
 )
 from ops import testing
-from ops.charm import CharmBase
 from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
 from ops.pebble import ExecError
 from ops.testing import Harness
@@ -25,12 +23,23 @@ testing.SIMULATE_CAN_CONNECT = True
 test_lego = Path(__file__).parent / "test_lego.crt"
 
 
-class AcmeTestCharm(CharmBase):
+class AcmeTestCharm(AcmeClient):
     def __init__(self, *args):
         """Uses the Orc8rBase library to manage events."""
-        self._server = "https://acme-staging-v02.api.letsencrypt.org/directory"
         super().__init__(*args)
-        lego_cmd = [
+        self._server = "https://acme-staging-v02.api.letsencrypt.org/directory"
+
+    @property
+    def email(self) -> str:
+        return "example@email.com"
+
+    @property
+    def domain(self) -> str:
+        return "example.com"
+
+    @property
+    def cmd(self):
+        return [
             "lego",
             "--email",
             self.email,
@@ -43,24 +52,14 @@ class AcmeTestCharm(CharmBase):
             "namecheap",
             "run",
         ]
-        self._acme_client_operator = AcmeClient(self, lego_cmd, "/tmp/csr.pem", {})
-        self.tls_certificates = TLSCertificatesProvidesV1(self, "certificates")
-        self.framework.observe(
-            self.tls_certificates.on.certificate_creation_request,
-            self._acme_client_operator.on_certificate_creation_request,
-        )
 
     @property
-    def email(self) -> str:
-        return "example@email.com"
+    def certs_path(self):
+        return "/tmp/.lego/certificates/"
 
     @property
-    def domain(self) -> str:
-        return "example.com"
-
-    @property
-    def additional_config(self):
-        return {}
+    def plugin_configs(self):
+        return None
 
 
 class TestCharm(unittest.TestCase):
@@ -131,7 +130,7 @@ class TestCharm(unittest.TestCase):
         assert kwargs == {
             "timeout": 300,
             "working_dir": "/tmp",
-            "environment": harness._charm.additional_config,
+            "environment": harness._charm.plugin_configs,
             "combine_stderr": False,
             "encoding": "utf-8",
             "group": None,
