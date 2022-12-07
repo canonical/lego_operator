@@ -6,7 +6,7 @@ import json
 import unittest
 from functools import partial
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import yaml
 from charms.acme_client_operator.v0.acme_client import AcmeClient  # type: ignore[import]
@@ -20,7 +20,8 @@ from ops.pebble import ExecError
 from ops.testing import Harness
 
 testing.SIMULATE_CAN_CONNECT = True
-test_lego = Path(__file__).parent / "test_lego.crt"
+test_cert = Path(__file__).parent / "test_lego.crt"
+TLS_LIB_PATH = "charms.tls_certificates_interface.v1.tls_certificates"
 
 
 class AcmeTestCharm(AcmeClient):
@@ -58,7 +59,7 @@ class AcmeTestCharm(AcmeClient):
         return "/tmp/.lego/certificates/"
 
     @property
-    def plugin_configs(self):
+    def plugin_config(self):
         return None
 
 
@@ -79,28 +80,71 @@ class TestCharm(unittest.TestCase):
         self.harness.set_can_connect("lego", True)
         self.addCleanup(self.harness.cleanup)
         self.harness.begin()
+        self.r_id = self.harness.add_relation("certificates", "remote")
+        self.harness.add_relation_unit(self.r_id, "remote/0")
 
-    def test_lego_pebble_ready(self):
-        # Check the initial Pebble plan is empty
+    def test_given_empty_pebble_plan_when_pebble_ready_then_status_is_active(self):
         initial_plan = self.harness.get_container_pebble_plan("lego")
         self.assertEqual(initial_plan.to_yaml(), "{}\n")
-        # Expected plan after Pebble ready with default config
         expected_plan = {}
         container = self.harness.model.unit.get_container("lego")
         self.harness.charm.on.lego_pebble_ready.emit(container)
-        # Get the plan now we've run PebbleReady
         updated_plan = self.harness.get_container_pebble_plan("lego").to_dict()
-        # Check we've got the plan we expected
         self.assertEqual(expected_plan, updated_plan)
-        # Ensure we set an ActiveStatus with no message
         self.assertEqual(self.harness.model.unit.status, ActiveStatus())
 
+    @patch(
+        f"{TLS_LIB_PATH}.TLSCertificatesProvidesV1.set_relation_certificate",
+    )
+    def test_given_cmd_when_certificate_creation_request_then_certificate_is_set_in_relation(
+        self, mock_set_relation_certificate
+    ):
+        self.harness._backend._pebble_clients["lego"].exec = partial(
+            self.check_exec_args, self.harness, Mock(wait_output=lambda: (None, None))
+        )
+        self.harness._backend._pebble_clients["lego"].push(
+            "/tmp/.lego/certificates/foo.crt", source=test_cert.read_bytes(), make_dirs=True
+        )
+
+        csr = self.request_cert()
+        with open(test_cert, "r") as file:
+            expected_certs = (file.read()).split("\n\n")
+        mock_set_relation_certificate.assert_called_with(
+            certificate=expected_certs[0],
+            certificate_signing_request=csr,
+            ca=expected_certs[-1],
+            chain=list(reversed(expected_certs)),
+            relation_id=self.r_id,
+        )
+
+    def test_given_command_execution_fails_when_certificate_creation_request_then_request_fails_and_status_is_blocked(
+        self,
+    ):
+        self.harness._backend._pebble_clients["lego"].exec = partial(
+            self.check_exec_args,
+            self.harness,
+            Mock(**{"wait_output.side_effect": ExecError("lego", 1, "barf", "rip")}),
+        )
+        self.harness._backend._pebble_clients["lego"].push(
+            "/tmp/.lego/certificates/foo.crt", source=test_cert.read_bytes(), make_dirs=True
+        )
+
+        self.request_cert()
+        assert self.harness.charm.unit.status == BlockedStatus(
+            "Error getting certificate. Check logs for details"
+        )
+
+    def test_given_cannot_connect_to_container_when_certificate_creation_request_then_request_fails_and_status_is_waiting(  # noqa: E501
+        self,
+    ):
+        self.harness.set_can_connect("lego", False)
+        self.request_cert()
+        assert self.harness.charm.unit.status == WaitingStatus("Waiting for container to be ready")
+
     def request_cert(self):
-        r_id = self.harness.add_relation("certificates", "remote")
-        self.harness.add_relation_unit(r_id, "remote/0")
         csr = generate_csr(generate_private_key(), subject="foo")
         self.harness.update_relation_data(
-            r_id,
+            self.r_id,
             "remote/0",
             {
                 "certificate_signing_requests": json.dumps(
@@ -108,6 +152,7 @@ class TestCharm(unittest.TestCase):
                 )
             },
         )
+        return csr.decode().strip()
 
     @staticmethod
     def check_exec_args(harness, return_value, *args, **kwargs):
@@ -130,7 +175,7 @@ class TestCharm(unittest.TestCase):
         assert kwargs == {
             "timeout": 300,
             "working_dir": "/tmp",
-            "environment": harness._charm.plugin_configs,
+            "environment": harness._charm.plugin_config,
             "combine_stderr": False,
             "encoding": "utf-8",
             "group": None,
@@ -143,33 +188,3 @@ class TestCharm(unittest.TestCase):
         }
 
         return return_value
-
-    def test_request(self):
-        self.harness._backend._pebble_clients["lego"].exec = partial(
-            self.check_exec_args, self.harness, Mock(wait_output=lambda: (None, None))
-        )
-        self.harness._backend._pebble_clients["lego"].push(
-            "/tmp/.lego/certificates/foo.crt", source=test_lego.read_bytes(), make_dirs=True
-        )
-
-        self.request_cert()
-
-    def test_failing_request(self):
-        self.harness._backend._pebble_clients["lego"].exec = partial(
-            self.check_exec_args,
-            self.harness,
-            Mock(**{"wait_output.side_effect": ExecError("lego", 1, "barf", "rip")}),
-        )
-        self.harness._backend._pebble_clients["lego"].push(
-            "/tmp/.lego/certificates/foo.crt", source=test_lego.read_bytes(), make_dirs=True
-        )
-
-        self.request_cert()
-        assert self.harness.charm.unit.status == BlockedStatus(
-            "Error getting certificate. Check logs for details"
-        )
-
-    def test_cannot_connect(self):
-        self.harness.set_can_connect("lego", False)
-        self.request_cert()
-        assert self.harness.charm.unit.status == WaitingStatus("Waiting for container to be ready")

@@ -1,12 +1,16 @@
 """# acme_client Library.
-This library is designed to enable developers to easily create new charms for implementations of the Acme protocol.
-This library contains all the logic necessary to get certificates from a certificate provider using the acme protocol.
+This library is designed to enable developers to easily create new charms for implementations of the ACME protocol.
+This library contains all the logic necessary to get certificates from an ACME server..
 
 ## Getting Started
-To get started using the library, you just need to fetch the library using `charmcraft`.
+To get started using the library, you need to fetch the library using `charmcraft`.
 ```shell
 charmcraft fetch-lib charms.acme_client_operator.v0.acme_client
 ```
+You will also need to add the following library to the charm's `requirements.txt` file:
+- jsonschema
+- cryptography
+
 Then, to use the library in an example charm, you can do the following:
 ```python
 from charms.acme_client_operator.v0.acme_client import AcmeClient
@@ -14,12 +18,13 @@ from ops.main import main
 class ExampleAcmeCharm(AcmeClient):
     def __init__(self, *args):
         super().__init__(*args)
+        self._server = "https://acme-staging-v02.api.letsencrypt.org/directory"
     @property
     def cmd(self):
         return [
             "lego",
             "--email",
-            self.email,
+            self._email,
             "--accept-tos",
             "--csr",
             "/tmp/csr.pem",
@@ -35,7 +40,7 @@ class ExampleAcmeCharm(AcmeClient):
         return "/tmp/.lego/certificates/"
 
     @property
-    def plugin_configs(self):
+    def plugin_config(self):
         return None
 ```
 Charms that leverage this library also need to specify a `provides` relation in their
@@ -96,7 +101,6 @@ class AcmeClient(CharmBase):
         self.unit.status = ActiveStatus()
 
     def _on_certificate_creation_request(self, event: CertificateCreationRequestEvent) -> None:
-        logger.info("Received Certificate Creation Request")
         if not self.unit.is_leader():
             return
 
@@ -120,7 +124,7 @@ class AcmeClient(CharmBase):
             path=self._csr_path, make_dirs=True, source=event.certificate_signing_request.encode()
         )
 
-        logger.info("Getting certificate for domain %s", subject)
+        logger.info("Received Certificate Creation Request for domain %s", subject)
         process = self._container.exec(
             self.cmd, timeout=300, working_dir="/tmp", environment=self.plugin_config
         )
@@ -138,7 +142,6 @@ class AcmeClient(CharmBase):
         certs = []
         for cert in chain_pem.read().split("\n\n"):
             certs.append(cert)
-
         self.tls_certificates.set_relation_certificate(
             certificate=certs[0],
             certificate_signing_request=event.certificate_signing_request,
@@ -149,15 +152,56 @@ class AcmeClient(CharmBase):
 
     @property
     @abstractmethod
-    def cmd(self):
-        """Command to run to get the certificate."""
+    def cmd(self) -> list[str]:
+        """Command to run to get the certificate.
+        Implement this method in your charm to return the command that will be used to get the
+        certificate.
+        Example
+        ```
+        @property
+        def cmd(self):
+            return [
+                "lego",
+                "--email",
+                self._email,
+                "--accept-tos",
+                "--csr",
+                "/tmp/csr.pem",
+                "--server",
+                self._server,
+                "--dns",
+                "namecheap",
+                "run",
+            ]
+        ```
+
+        Returns:
+            list[str]: Command and args to run.
+        """
 
     @property
     @abstractmethod
-    def certs_path(self):
-        """Path to the certificates."""
+    def certs_path(self) -> str:
+        """Path to the certificates.
+        Implement this method in your charm to return the path to the obtained certificates.
+        Example
+        ```
+        @property
+        def certs_path(self):
+            return "/tmp/.lego/certificates/"
+        ```
+
+        Returns:
+            str: Path to the certificates.
+        """
 
     @property
     @abstractmethod
-    def plugin_config(self):
-        """Plugin specific additional configuration for the command."""
+    def plugin_config(self) -> dict[str, str]:
+        """Plugin specific additional configuration for the command.
+        Implement this method in your charm to return a dictionary with the plugin specific
+        configuration.
+
+        Returns:
+            dict[str, str]: Plugin specific configuration.
+        """
