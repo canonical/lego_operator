@@ -31,35 +31,19 @@ class AcmeTestCharm(AcmeClient):
         self._server = "https://acme-staging-v02.api.letsencrypt.org/directory"
 
     @property
-    def email(self) -> str:
+    def _email(self) -> str:
         return "example@email.com"
 
     @property
-    def domain(self) -> str:
+    def _domain(self) -> str:
         return "example.com"
 
     @property
-    def cmd(self):
-        return [
-            "lego",
-            "--email",
-            self.email,
-            "--accept-tos",
-            "--csr",
-            "/tmp/csr.pem",
-            "--server",
-            self._server,
-            "--dns",
-            "namecheap",
-            "run",
-        ]
+    def _plugin(self) -> str:
+        return "namecheap"
 
     @property
-    def certs_path(self):
-        return "/tmp/.lego/certificates/"
-
-    @property
-    def plugin_config(self):
+    def _plugin_config(self):
         return None
 
 
@@ -160,7 +144,7 @@ class TestCharm(unittest.TestCase):
             [
                 "lego",
                 "--email",
-                harness._charm.email,
+                harness._charm._email,
                 "--accept-tos",
                 "--csr",
                 "/tmp/csr.pem",
@@ -168,6 +152,8 @@ class TestCharm(unittest.TestCase):
                 harness._charm._server,
                 "--dns",
                 "namecheap",
+                "--domains",
+                harness._charm._domain,
                 "run",
             ],
         )
@@ -175,7 +161,7 @@ class TestCharm(unittest.TestCase):
         assert kwargs == {
             "timeout": 300,
             "working_dir": "/tmp",
-            "environment": harness._charm.plugin_config,
+            "environment": harness._charm._plugin_config,
             "combine_stderr": False,
             "encoding": "utf-8",
             "group": None,

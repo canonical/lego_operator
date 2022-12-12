@@ -19,28 +19,21 @@ class ExampleAcmeCharm(AcmeClient):
     def __init__(self, *args):
         super().__init__(*args)
         self._server = "https://acme-staging-v02.api.letsencrypt.org/directory"
-    @property
-    def cmd(self):
-        return [
-            "lego",
-            "--email",
-            self._email,
-            "--accept-tos",
-            "--csr",
-            "/tmp/csr.pem",
-            "--server",
-            self._server,
-            "--dns",
-            "namecheap",
-            "run",
-        ]
 
     @property
-    def certs_path(self):
-        return "/tmp/.lego/certificates/"
+    def _domain(self) -> Optional[str]:
+        return self.model.config.get("domain")
 
     @property
-    def plugin_config(self):
+    def _email(self) -> Optional[str]:
+        return self.model.config.get("email")
+
+    @property
+    def _plugin(self) -> str:
+        return "namecheap"
+
+    @property
+    def _plugin_config(self):
         return None
 ```
 Charms that leverage this library also need to specify a `provides` relation in their
@@ -51,6 +44,7 @@ provides:
     interface: tls-certificates
 ```
 """
+import abc
 
 # The unique Charmhub library identifier, never change it
 LIBID = "b3c9913b68dc42b89dfd0e77ac57236d"
@@ -80,10 +74,12 @@ logger = logging.getLogger(__name__)
 class AcmeClient(CharmBase):
     """Base charm for charms that use the ACME protocol to get certificates.
     This charm implements the tls_certificates interface as a provider."""
-
+    __metaclass__ = abc.ABCMeta
     def __init__(self, *args):
         super().__init__(*args)
+        self._server = "https://acme-staging-v02.api.letsencrypt.org/directory"
         self._csr_path = "/tmp/csr.pem"
+        self._certs_path = "/tmp/.lego/certificates/"
         self._container_name = self.service_name = self.meta.name
         self._container = self.unit.get_container(self._container_name)
         service_name_with_underscores = self.service_name.replace("-", "_")
@@ -126,7 +122,7 @@ class AcmeClient(CharmBase):
 
         logger.info("Received Certificate Creation Request for domain %s", subject)
         process = self._container.exec(
-            self.cmd, timeout=300, working_dir="/tmp", environment=self.plugin_config
+            self._cmd, timeout=300, working_dir="/tmp", environment=self._plugin_config
         )
         try:
             stdout, error = process.wait_output()
@@ -138,10 +134,13 @@ class AcmeClient(CharmBase):
                 logger.error("    %s", line)
             return
 
-        chain_pem = self._container.pull(path=f"{self.certs_path}{subject}.crt")
+        chain_pem = self._container.pull(path=f"{self._certs_path}{subject}.crt")
+        print(type(chain_pem))
         certs = []
         for cert in chain_pem.read().split("\n\n"):
             certs.append(cert)
+        print(type(certs[0]))
+        print(type(certs[-1]))
         self.tls_certificates.set_relation_certificate(
             certificate=certs[0],
             certificate_signing_request=event.certificate_signing_request,
@@ -151,53 +150,61 @@ class AcmeClient(CharmBase):
         )
 
     @property
-    @abstractmethod
-    def cmd(self) -> list[str]:
+    def _cmd(self) -> list[str]:
         """Command to run to get the certificate.
-        Implement this method in your charm to return the command that will be used to get the
-        certificate.
-        Example
-        ```
-        @property
-        def cmd(self):
-            return [
-                "lego",
-                "--email",
-                self._email,
-                "--accept-tos",
-                "--csr",
-                "/tmp/csr.pem",
-                "--server",
-                self._server,
-                "--dns",
-                "namecheap",
-                "run",
-            ]
-        ```
 
         Returns:
             list[str]: Command and args to run.
         """
+        return [
+            "lego",
+            "--email",
+            self._email,
+            "--accept-tos",
+            "--csr",
+            self._csr_path,
+            "--server",
+            self._server,
+            "--dns",
+            self._plugin,
+            "--domains",
+            self._domain,
+            "run",
+        ]
 
     @property
     @abstractmethod
-    def certs_path(self) -> str:
-        """Path to the certificates.
-        Implement this method in your charm to return the path to the obtained certificates.
-        Example
-        ```
-        @property
-        def certs_path(self):
-            return "/tmp/.lego/certificates/"
-        ```
+    def _email(self) -> str:
+        """Account email address.
+        Implement this method in your charm to return the email address of the account on the ACME server.
 
         Returns:
-            str: Path to the certificates.
+            str: email address.
         """
 
     @property
     @abstractmethod
-    def plugin_config(self) -> dict[str, str]:
+    def _plugin(self) -> str:
+        """DNS provider used.
+        Implement this method in your charm to return your DNS provider.
+
+        Returns:
+            str: DNS provider.
+        """
+
+    @property
+    @abstractmethod
+    def _domain(self) -> str:
+        """The main domain of the certificate.
+        Implement this method in your charm to return your domain.
+
+        Returns:
+            str: Domain.
+        """
+
+    @property
+    @abstractmethod
+    def _plugin_config(self) -> dict[str, str]:
         """Plugin specific additional configuration for the command.
         Implement this method in your charm to return a dictionary with the plugin specific
         configuration.
@@ -205,3 +212,4 @@ class AcmeClient(CharmBase):
         Returns:
             dict[str, str]: Plugin specific configuration.
         """
+
