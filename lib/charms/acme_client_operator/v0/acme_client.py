@@ -45,6 +45,7 @@ provides:
 ```
 """
 import abc
+from typing import List, Dict
 
 # The unique Charmhub library identifier, never change it
 LIBID = "b3c9913b68dc42b89dfd0e77ac57236d"
@@ -80,12 +81,11 @@ class AcmeClient(CharmBase):
         self._server = "https://acme-staging-v02.api.letsencrypt.org/directory"
         self._csr_path = "/tmp/csr.pem"
         self._certs_path = "/tmp/.lego/certificates/"
-        self._container_name = self.service_name = self.meta.name
-        self._container = self.unit.get_container(self._container_name)
-        service_name_with_underscores = self.service_name.replace("-", "_")
+        self._container_name = list(self.meta.containers.values())[0].name
+        container_name_with_underscores = self._container_name.replace("-", "_")
         self.tls_certificates = TLSCertificatesProvidesV1(self, "certificates")
         pebble_ready_event = getattr(
-            self.on, f"{service_name_with_underscores}_pebble_ready"
+            self.on, f"{container_name_with_underscores}_pebble_ready"
         )
         self.framework.observe(pebble_ready_event, self._on_acme_client_pebble_ready)
         self.framework.observe(
@@ -97,10 +97,11 @@ class AcmeClient(CharmBase):
         self.unit.status = ActiveStatus()
 
     def _on_certificate_creation_request(self, event: CertificateCreationRequestEvent) -> None:
+        _container = self.unit.get_container(self._container_name)
         if not self.unit.is_leader():
             return
 
-        if not self._container.can_connect():
+        if not _container.can_connect():
             self.unit.status = WaitingStatus("Waiting for container to be ready")
             event.defer()
             return
@@ -116,12 +117,12 @@ class AcmeClient(CharmBase):
             logger.exception("Bad CSR received, aborting")
             return
 
-        self._container.push(
+        _container.push(
             path=self._csr_path, make_dirs=True, source=event.certificate_signing_request.encode()
         )
 
         logger.info("Received Certificate Creation Request for domain %s", subject)
-        process = self._container.exec(
+        process = _container.exec(
             self._cmd, timeout=300, working_dir="/tmp", environment=self._plugin_config
         )
         try:
@@ -134,13 +135,10 @@ class AcmeClient(CharmBase):
                 logger.error("    %s", line)
             return
 
-        chain_pem = self._container.pull(path=f"{self._certs_path}{subject}.crt")
-        print(type(chain_pem))
+        chain_pem = _container.pull(path=f"{self._certs_path}{subject}.crt")
         certs = []
         for cert in chain_pem.read().split("\n\n"):
             certs.append(cert)
-        print(type(certs[0]))
-        print(type(certs[-1]))
         self.tls_certificates.set_relation_certificate(
             certificate=certs[0],
             certificate_signing_request=event.certificate_signing_request,
@@ -150,7 +148,7 @@ class AcmeClient(CharmBase):
         )
 
     @property
-    def _cmd(self) -> list[str]:
+    def _cmd(self) -> List[str]:
         """Command to run to get the certificate.
 
         Returns:
@@ -167,8 +165,6 @@ class AcmeClient(CharmBase):
             self._server,
             "--dns",
             self._plugin,
-            "--domains",
-            self._domain,
             "run",
         ]
 
@@ -194,17 +190,7 @@ class AcmeClient(CharmBase):
 
     @property
     @abstractmethod
-    def _domain(self) -> str:
-        """The main domain of the certificate.
-        Implement this method in your charm to return your domain.
-
-        Returns:
-            str: Domain.
-        """
-
-    @property
-    @abstractmethod
-    def _plugin_config(self) -> dict[str, str]:
+    def _plugin_config(self) -> Dict[str, str]:
         """Plugin specific additional configuration for the command.
         Implement this method in your charm to return a dictionary with the plugin specific
         configuration.
@@ -212,4 +198,3 @@ class AcmeClient(CharmBase):
         Returns:
             dict[str, str]: Plugin specific configuration.
         """
-

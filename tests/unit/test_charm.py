@@ -35,10 +35,6 @@ class AcmeTestCharm(AcmeClient):
         return "example@email.com"
 
     @property
-    def _domain(self) -> str:
-        return "example.com"
-
-    @property
     def _plugin(self) -> str:
         return "namecheap"
 
@@ -152,8 +148,6 @@ class TestCharm(unittest.TestCase):
                 harness._charm._server,
                 "--dns",
                 "namecheap",
-                "--domains",
-                harness._charm._domain,
                 "run",
             ],
         )
