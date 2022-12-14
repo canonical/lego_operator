@@ -1,5 +1,10 @@
 # Copyright 2022 Canonical Ltd.
 # See LICENSE file for licensing details.
+description: |
+  A dummy charm that is used to test the ACME integration.
+
+summary: |
+    A dummy charm that is used to test the ACME integration.
 
 name: acme-tester
 

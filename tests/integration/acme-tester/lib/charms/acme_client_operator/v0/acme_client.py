@@ -1,5 +1,9 @@
+# Copyright 2021 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 """# acme_client Library.
-This library is designed to enable developers to easily create new charms for implementations of the ACME protocol.
+
+This library is designed to enable developers to easily create new charms for the ACME protocol.
 This library contains all the logic necessary to get certificates from an ACME server..
 
 ## Getting Started
@@ -45,7 +49,19 @@ provides:
 ```
 """
 import abc
-from typing import List, Dict
+import logging
+from abc import abstractmethod
+from typing import Dict, List
+
+from charms.tls_certificates_interface.v1.tls_certificates import (  # type: ignore[import]
+    CertificateCreationRequestEvent,
+    TLSCertificatesProvidesV1,
+)
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+from ops.charm import CharmBase
+from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
+from ops.pebble import ExecError
 
 # The unique Charmhub library identifier, never change it
 LIBID = "b3c9913b68dc42b89dfd0e77ac57236d"
@@ -57,26 +73,19 @@ LIBAPI = 0
 # to 0 if you are raising the major API version
 LIBPATCH = 1
 
-import logging
-from abc import abstractmethod
-from charms.tls_certificates_interface.v1.tls_certificates import (  # type: ignore[import]
-    TLSCertificatesProvidesV1,
-    CertificateCreationRequestEvent,
-)
-from cryptography import x509
-from cryptography.x509.oid import NameOID
-from ops.charm import CharmBase
-from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
-from ops.pebble import ExecError
-
 logger = logging.getLogger(__name__)
 
 
 class AcmeClient(CharmBase):
     """Base charm for charms that use the ACME protocol to get certificates.
-    This charm implements the tls_certificates interface as a provider."""
+
+    This charm implements the tls_certificates interface as a provider.
+    """
+
     __metaclass__ = abc.ABCMeta
+
     def __init__(self, *args):
+
         super().__init__(*args)
         self._server = "https://acme-staging-v02.api.letsencrypt.org/directory"
         self._csr_path = "/tmp/csr.pem"
@@ -84,9 +93,7 @@ class AcmeClient(CharmBase):
         self._container_name = list(self.meta.containers.values())[0].name
         container_name_with_underscores = self._container_name.replace("-", "_")
         self.tls_certificates = TLSCertificatesProvidesV1(self, "certificates")
-        pebble_ready_event = getattr(
-            self.on, f"{container_name_with_underscores}_pebble_ready"
-        )
+        pebble_ready_event = getattr(self.on, f"{container_name_with_underscores}_pebble_ready")
         self.framework.observe(pebble_ready_event, self._on_acme_client_pebble_ready)
         self.framework.observe(
             self.tls_certificates.on.certificate_creation_request,
@@ -137,7 +144,7 @@ class AcmeClient(CharmBase):
 
         chain_pem = _container.pull(path=f"{self._certs_path}{subject}.crt")
         certs = []
-        for cert in chain_pem.read().split("\n\n"):
+        for cert in chain_pem.read().split("\n\n"):  # type: ignore[arg-type]
             certs.append(cert)
         self.tls_certificates.set_relation_certificate(
             certificate=certs[0],
@@ -172,7 +179,9 @@ class AcmeClient(CharmBase):
     @abstractmethod
     def _email(self) -> str:
         """Account email address.
-        Implement this method in your charm to return the email address of the account on the ACME server.
+
+        Implement this method in your charm to return
+        the email address of the account on the ACME server.
 
         Returns:
             str: email address.
@@ -182,6 +191,7 @@ class AcmeClient(CharmBase):
     @abstractmethod
     def _plugin(self) -> str:
         """DNS provider used.
+
         Implement this method in your charm to return your DNS provider.
 
         Returns:
@@ -192,6 +202,7 @@ class AcmeClient(CharmBase):
     @abstractmethod
     def _plugin_config(self) -> Dict[str, str]:
         """Plugin specific additional configuration for the command.
+
         Implement this method in your charm to return a dictionary with the plugin specific
         configuration.
 
