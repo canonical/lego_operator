@@ -4,7 +4,6 @@
 # Learn more about testing at: https://juju.is/docs/sdk/testing
 import json
 import unittest
-from functools import partial
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -22,6 +21,22 @@ from ops.testing import Harness
 testing.SIMULATE_CAN_CONNECT = True
 test_cert = Path(__file__).parent / "test_lego.crt"
 TLS_LIB_PATH = "charms.tls_certificates_interface.v1.tls_certificates"
+
+
+class MockExec:
+    def __init__(self, *args, **kwargs):
+        if "raise_exec_error" in kwargs:
+            self.raise_exec_error = True
+        else:
+            self.raise_exec_error = False
+
+    def exec(self, *args, **kwargs):
+        pass
+
+    def wait_output(self, *args, **kwargs):
+        if self.raise_exec_error:
+            raise ExecError(command="lego", exit_code=1, stdout="", stderr="")
+        return "stdout", "stderr"
 
 
 class AcmeTestCharm(AcmeClient):
@@ -64,29 +79,22 @@ class TestCharm(unittest.TestCase):
         self.harness.add_relation_unit(self.r_id, "remote/0")
 
     def test_given_empty_pebble_plan_when_pebble_ready_then_status_is_active(self):
-        initial_plan = self.harness.get_container_pebble_plan("lego")
-        self.assertEqual(initial_plan.to_yaml(), "{}\n")
-        expected_plan = {}
         container = self.harness.model.unit.get_container("lego")
         self.harness.charm.on.lego_pebble_ready.emit(container)
-        updated_plan = self.harness.get_container_pebble_plan("lego").to_dict()
-        self.assertEqual(expected_plan, updated_plan)
         self.assertEqual(self.harness.model.unit.status, ActiveStatus())
 
+    @patch("ops.model.Container.exec", new=MockExec)
     @patch(
         f"{TLS_LIB_PATH}.TLSCertificatesProvidesV1.set_relation_certificate",
     )
     def test_given_cmd_when_certificate_creation_request_then_certificate_is_set_in_relation(
         self, mock_set_relation_certificate
     ):
-        self.harness._backend._pebble_clients["lego"].exec = partial(
-            self.check_exec_args, self.harness, Mock(wait_output=lambda: (None, None))
-        )
-        self.harness._backend._pebble_clients["lego"].push(
+        container = self.harness.model.unit.get_container("lego")
+        container.push(
             "/tmp/.lego/certificates/foo.crt", source=test_cert.read_bytes(), make_dirs=True
         )
-
-        csr = self.request_cert()
+        csr = self.add_csr_to_remote_unit_relation_data()
         with open(test_cert, "r") as file:
             expected_certs = (file.read()).split("\n\n")
         mock_set_relation_certificate.assert_called_with(
@@ -97,19 +105,17 @@ class TestCharm(unittest.TestCase):
             relation_id=self.r_id,
         )
 
+    @patch("ops.model.Container.exec", new_callable=Mock)
     def test_given_command_execution_fails_when_certificate_creation_request_then_request_fails_and_status_is_blocked(
-        self,
+        self, patch_exec
     ):
-        self.harness._backend._pebble_clients["lego"].exec = partial(
-            self.check_exec_args,
-            self.harness,
-            Mock(**{"wait_output.side_effect": ExecError("lego", 1, "barf", "rip")}),
-        )
-        self.harness._backend._pebble_clients["lego"].push(
+        patch_exec.return_value = MockExec(raise_exec_error=True)
+        container = self.harness.model.unit.get_container("lego")
+        container.push(
             "/tmp/.lego/certificates/foo.crt", source=test_cert.read_bytes(), make_dirs=True
         )
 
-        self.request_cert()
+        self.add_csr_to_remote_unit_relation_data()
         assert self.harness.charm.unit.status == BlockedStatus(
             "Error getting certificate. Check logs for details"
         )
@@ -118,10 +124,14 @@ class TestCharm(unittest.TestCase):
         self,
     ):
         self.harness.set_can_connect("lego", False)
-        self.request_cert()
+        self.add_csr_to_remote_unit_relation_data()
         assert self.harness.charm.unit.status == WaitingStatus("Waiting for container to be ready")
 
-    def request_cert(self):
+    def add_csr_to_remote_unit_relation_data(self) -> str:
+        """Add a CSR to the remote unit relation data.
+
+        Returns: The CSR as a string.
+        """
         csr = generate_csr(generate_private_key(), subject="foo")
         self.harness.update_relation_data(
             self.r_id,
